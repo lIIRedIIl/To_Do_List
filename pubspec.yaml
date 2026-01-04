@@ -10,13 +10,19 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  # saves tasks between refreshes / restarts
   shared_preferences: ^2.2.2
+
+  # date formatting (dd/MM/yyyy)
+  intl: ^0.19.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
 
+  # lint rules used by analysis_options.yaml
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true

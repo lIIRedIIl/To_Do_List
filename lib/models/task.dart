@@ -1,58 +1,57 @@
-// this file holds the data model for a task
-// we keep it separate so the ui files stay cleaner
-
+/// task model used across the app
 class Task {
-  // a unique id so we can safely find/update a task
+  /// unique id so we can update/delete the right task
   final String id;
 
-  // the text the user typed
+  /// what the user typed
   final String title;
 
-  // whether the task is ticked off
+  /// ticked or not
   final bool isDone;
 
-  // which day bucket the task belongs to (0=today, 1=tomorrow, 2=day after)
-  final int dayIndex;
+  /// due date stored as an iso date string: yyyy-mm-dd
+  /// (we store iso for reliability, but display dd/mm/yyyy)
+  final String dateIso;
 
   const Task({
     required this.id,
     required this.title,
     required this.isDone,
-    required this.dayIndex,
+    required this.dateIso,
   });
 
-  // creates a new task with a few fields changed (immutable style)
+  /// create a copy with some fields changed (immutable style)
   Task copyWith({
     String? id,
     String? title,
     bool? isDone,
-    int? dayIndex,
+    String? dateIso,
   }) {
     return Task(
       id: id ?? this.id,
       title: title ?? this.title,
       isDone: isDone ?? this.isDone,
-      dayIndex: dayIndex ?? this.dayIndex,
+      dateIso: dateIso ?? this.dateIso,
     );
   }
 
-  // converts task -> map so we can json encode it for shared_preferences
+  /// convert task -> map so we can json encode it
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'title': title,
       'isDone': isDone,
-      'dayIndex': dayIndex,
+      'dateIso': dateIso,
     };
   }
 
-  // converts map -> task when we load from shared_preferences
+  /// convert map -> task when we load from storage
   factory Task.fromMap(Map<String, dynamic> map) {
     return Task(
       id: map['id'] as String,
       title: map['title'] as String,
       isDone: map['isDone'] as bool,
-      dayIndex: map['dayIndex'] as int,
+      dateIso: map['dateIso'] as String,
     );
   }
 }

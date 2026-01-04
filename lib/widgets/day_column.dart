@@ -1,121 +1,133 @@
+
 import 'package:flutter/material.dart';
+
 import '../models/task.dart';
-import 'empty_state.dart';
 import 'task_card.dart';
 
-// this widget shows one day bucket (today / tomorrow / day after)
-// it is also a drag target so you can drop tasks into it
 class DayColumn extends StatelessWidget {
-  final String title;
-  final int dayIndex;
-
+  final String dayIso;
   final List<Task> tasks;
 
-  // called when a task is dropped into this column
-  final void Function(Task task) onDropTask;
+  // (taskId, newValue)
+  final void Function(String taskId, bool value) onToggle;
 
-  // called when user ticks a task
-  final void Function(String taskId) onToggleTask;
+  // (taskId)
+  final void Function(String taskId) onDelete;
 
-  // called when user long-press deletes
-  final void Function(String taskId) onDeleteTask;
+  // (taskId, fromIso, toIso)
+  final void Function(String taskId, String fromIso, String toIso) onMove;
 
   const DayColumn({
     super.key,
-    required this.title,
-    required this.dayIndex,
+    required this.dayIso,
     required this.tasks,
-    required this.onDropTask,
-    required this.onToggleTask,
-    required this.onDeleteTask,
+    required this.onToggle,
+    required this.onDelete,
+    required this.onMove,
   });
+
+  String _two(int n) => n.toString().padLeft(2, '0');
+
+  // Convert yyyy-mm-dd into dd/mm/yyyy for the label
+  String _prettyFromIso(String iso) {
+    final parts = iso.split('-'); // [yyyy, mm, dd]
+    if (parts.length != 3) return iso;
+    final y = parts[0];
+    final m = parts[1];
+    final d = parts[2];
+    return '$d/$m/$y';
+  }
+
+  String _weekdayFromIso(String iso) {
+    final parts = iso.split('-');
+    if (parts.length != 3) return '';
+    final y = int.tryParse(parts[0]) ?? 2000;
+    final m = int.tryParse(parts[1]) ?? 1;
+    final d = int.tryParse(parts[2]) ?? 1;
+
+    final dt = DateTime(y, m, d);
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return names[dt.weekday - 1];
+  }
 
   @override
   Widget build(BuildContext context) {
-    // dragtarget receives a Task object from a draggable
-    return DragTarget<Task>(
-      onWillAccept: (task) {
-        // allow dropping if the task exists and is from a different day
-        if (task == null) return false;
-        return task.dayIndex != dayIndex;
+    return DragTarget<DragTaskData>(
+   
+      onWillAcceptWithDetails: (details) => true,
+
+      onAcceptWithDetails: (details) {
+        final data = details.data;
+        onMove(data.taskId, data.fromDateIso, dayIso);
       },
-      onAccept: (task) {
-        // when dropped, tell the parent to move the task into this day
-        onDropTask(task);
-      },
-      builder: (context, candidateData, rejectedData) {
-        // if user is hovering a dragged task over this column,
-        // we tint the background a bit
-        final bool isHovering = candidateData.isNotEmpty;
+
+      builder: (context, candidate, rejected) {
+        final isHovering = candidate.isNotEmpty;
 
         return Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isHovering
-                ? Colors.blue.withOpacity(0.06)
-                : Colors.black.withOpacity(0.03),
-            borderRadius: BorderRadius.circular(16),
+            color: isHovering ? const Color(0xFFEFE2D4) : const Color(0xFFFDFBF8),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: isHovering
-                  ? Colors.blue.withOpacity(0.30)
-                  : Colors.black.withOpacity(0.08),
+              color: isHovering ? const Color(0xFFB08968) : const Color(0xFFE7DED5),
             ),
+            boxShadow: const [
+              BoxShadow(
+                blurRadius: 16,
+                offset: Offset(0, 10),
+                color: Color(0x14000000),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // day title
-              Text(
-                title,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              // date
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEADFD5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_weekdayFromIso(dayIso)} • ${_prettyFromIso(dayIso)}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF3B2E25),
+                  ),
+                ),
               ),
+
               const SizedBox(height: 10),
 
-              // list of tasks (or empty state)
+              //  drop area 
               Expanded(
-                child: tasks.isEmpty
-                    ? const EmptyState(message: 'no tasks yet')
-                    : ListView.separated(
-                        itemCount: tasks.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final task = tasks[index];
-
-                          // draggable wraps the task card so we can drag it between days
-                          return Draggable<Task>(
-                            data: task,
-
-                            // the widget under your finger while dragging
-                            feedback: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 320),
-                              child: Opacity(
-                                opacity: 0.95,
-                                child: TaskCard(
-                                  task: task,
-                                  onToggle: () {},
-                                  onDelete: () {},
-                                ),
-                              ),
-                            ),
-
-                            // what stays behind in the list while dragging
-                            childWhenDragging: Opacity(
-                              opacity: 0.35,
-                              child: TaskCard(
-                                task: task,
-                                onToggle: () => onToggleTask(task.id),
-                                onDelete: () => onDeleteTask(task.id),
-                              ),
-                            ),
-
-                            child: TaskCard(
+                child: Container(
+                  width: double.infinity,
+                  color: Colors.transparent, // makes the whole area droppable
+                  child: tasks.isEmpty
+                      ? Center(
+                          child: Text(
+                            isHovering ? 'drop here' : 'no tasks yet',
+                            style: const TextStyle(color: Colors.black45),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: EdgeInsets.zero,
+                          itemCount: tasks.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final task = tasks[index];
+                            return TaskCard(
                               task: task,
-                              onToggle: () => onToggleTask(task.id),
-                              onDelete: () => onDeleteTask(task.id),
-                            ),
-                          );
-                        },
-                      ),
+                              onToggle: (v) => onToggle(task.id, v),
+                              onDelete: () => onDelete(task.id),
+                            );
+                          },
+                        ),
+                ),
               ),
             ],
           ),
