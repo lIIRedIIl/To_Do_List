@@ -13,45 +13,47 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // show 7 days.
+  //  show one week at a time.
   static const int daysToShow = 7;
 
-  // handles saving/loading tasks.
+  // storage helper (SharedPreferences wrapper).
   final StorageService _storage = StorageService();
 
   // all tasks for all days live here.
   final List<Task> _tasks = [];
 
-  // week starts from today (date only, no time).
+  // start date for the week (we normalise to remove time).
   late DateTime _startDate;
 
   @override
   void initState() {
     super.initState();
 
-    // make "today" the day today
+    // today with time removed.
     final now = DateTime.now();
     _startDate = DateTime(now.year, now.month, now.day);
 
-    // looad saved tasks.
+    // Load saved tasks when the screen opens.
     _loadTasks();
   }
 
   // ----------------------------
-  // date helpers
+  // DATE HELPERS
   // ----------------------------
 
+  // two digit helper: 4 -> "04"
   String _two(int n) => n.toString().padLeft(2, '0');
 
-  // Date storage key: yyyy-MM-dd (matches your Task.dateIso)
   String _iso(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
 
   // ----------------------------
-  // storage
+  // LOAD / SAVE
   // ----------------------------
 
   Future<void> _loadTasks() async {
     final loaded = await _storage.loadTasks();
+    if (!mounted) return;
+
     setState(() {
       _tasks
         ..clear()
@@ -64,19 +66,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ----------------------------
-  // task helper
+  // TASK 
   // ----------------------------
 
-  List<Task> _tasksForIso(String iso) =>
-      _tasks.where((t) => t.dateIso == iso).toList();
+  // tasks for one day 
+  List<Task> _tasksForIso(String iso) {
+    return _tasks.where((t) => t.dateIso == iso).toList();
+  }
 
-  int _doneCountForIso(String iso) =>
-      _tasks.where((t) => t.dateIso == iso && t.isDone).length;
+  // count of done tasks for one day.
+  int _doneCountForIso(String iso) {
+    return _tasks.where((t) => t.dateIso == iso && t.isDone).length;
+  }
 
   // ----------------------------
-  // task action
+  // TASK ACTIONS
   // ----------------------------
 
+  // toggle a task done/undone.
   Future<void> _toggleTask(String taskId, bool value) async {
     final i = _tasks.indexWhere((t) => t.id == taskId);
     if (i == -1) return;
@@ -88,6 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _saveTasks();
   }
 
+  // delete a task.
   Future<void> _deleteTask(String taskId) async {
     setState(() {
       _tasks.removeWhere((t) => t.id == taskId);
@@ -96,10 +104,9 @@ class _HomeScreenState extends State<HomeScreen> {
     await _saveTasks();
   }
 
-  
-  
-  void _moveTask(String taskId, String fromIso, String toIso) {
-    // if dropped back into same day, do nothing.
+  // nove a task to a different day (used by the drag + drop).
+  Future<void> _moveTaskToDateIso(String taskId, String fromIso, String toIso) async {
+    // if task drops back onto the same column, do nothing.
     if (fromIso == toIso) return;
 
     final i = _tasks.indexWhere((t) => t.id == taskId);
@@ -109,10 +116,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _tasks[i] = _tasks[i].copyWith(dateIso: toIso);
     });
 
-    // save after movingg
-    _saveTasks();
+    await _saveTasks();
   }
 
+  // add a new task to a specific day iso.
   Future<void> _addTaskToIso(String iso, String title) async {
     final newTask = Task(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -129,11 +136,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ----------------------------
-  // ading task dialog (+ button)
+  // ADD TASK DIALOG (used by + button)
   // ----------------------------
 
+  // opens a box and adds the task to "today".
   Future<void> _showAddTaskDialog() async {
     final controller = TextEditingController();
+
+    // today by default (the first column).
     final todayIso = _iso(_startDate);
 
     final String? result = await showDialog<String>(
@@ -147,8 +157,14 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: const InputDecoration(
               hintText: 'e.g. buy milk',
             ),
-            onSubmitted: (_) =>
-                Navigator.of(dialogContext).pop(controller.text),
+
+            onSubmitted: (value) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (Navigator.of(dialogContext).canPop()) {
+                  Navigator.of(dialogContext).pop(value);
+                }
+              });
+            },
           ),
           actions: [
             TextButton(
@@ -173,17 +189,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ----------------------------
-  // UI
+  // UI  :)
   // ----------------------------
 
   @override
   Widget build(BuildContext context) {
+    // header stats for today.
     final todayIso = _iso(_startDate);
     final todayTasks = _tasksForIso(todayIso);
     final todayDone = _doneCountForIso(todayIso);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F1EA),
+      backgroundColor: const Color(0xFFF6F1EA), // cozy background
       body: SafeArea(
         child: Column(
           children: [
@@ -192,6 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
               todayDone: todayDone,
             ),
 
+            // 7-day scrollable week
             Expanded(
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
@@ -207,16 +225,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: SizedBox(
                       width: 300,
                       child: DayColumn(
-                        // DayColumn expects dayIso 
                         dayIso: dayIso,
-
-                        // tasks for set day
                         tasks: dayTasks,
-
-                        // callbacks
                         onToggle: _toggleTask,
                         onDelete: _deleteTask,
-                        onMove: _moveTask,
+                        onMove: _moveTaskToDateIso,
                       ),
                     ),
                   );
@@ -229,6 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // banner with a  + button.
   Widget _buildHeader({
     required int todayTotal,
     required int todayDone,
@@ -237,7 +251,7 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFB08968),
+        color: const Color(0xFFB08968), // coffee brown ☕
         borderRadius: BorderRadius.circular(20),
         boxShadow: const [
           BoxShadow(
@@ -249,6 +263,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Row(
         children: [
+          // title 
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -270,7 +285,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+
           const Spacer(),
+
+          // + button 
           Container(
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.25),
