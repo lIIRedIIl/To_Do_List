@@ -79,8 +79,9 @@ class MyApp extends StatelessWidget {
         ),
       ),
 
-      // the first screen the app shows
+      // the  screen the app shows
       home: const HomeScreen(),
     );
   }
 }
+//
