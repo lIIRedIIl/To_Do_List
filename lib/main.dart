@@ -1,23 +1,20 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 
-/// entry point of the application
+// entry point of the app
 void main() {
-  // starts the app and attaches the widget tree
-  runApp(const myApp());
+  runApp(const MyApp());
 }
 
-/// root widget of the app
-/// responsible for app-wide setup
-class myApp extends StatelessWidget {
-  const myApp({super.key});
+// top-level app widget (sets up material app + first screen)
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return const MaterialApp(
-      // first screen shown when the app starts
-      home: homeScreen(),
+      debugShowCheckedModeBanner: false,
+      home: HomeScreen(),
     );
   }
 }
- 
