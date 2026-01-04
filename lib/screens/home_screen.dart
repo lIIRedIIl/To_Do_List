@@ -1,11 +1,11 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/task.dart';
-import '../widgets/empty_state.dart';
+import '../widgets/day_column.dart';
 
+// this is the main page that holds the three day columns
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -14,19 +14,23 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // in-memory list of tasks
+  // all tasks live here in memory
   final List<Task> _tasks = [];
 
-  // key used in shared preferences
-  static const String _storageKey = 'tasks';
+  // key for shared_preferences storage
+  static const String _storageKey = 'tasks_v1';
+
+  // used for undo delete
+  Task? _lastDeletedTask;
 
   @override
   void initState() {
     super.initState();
+    // load saved tasks as soon as the screen starts
     _loadTasks();
   }
 
-  // load tasks when the app starts
+  // reads tasks from shared_preferences
   Future<void> _loadTasks() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_storageKey);
@@ -44,34 +48,22 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // save tasks any time we change them
+  // saves tasks to shared_preferences whenever we change anything
   Future<void> _saveTasks() async {
     final prefs = await SharedPreferences.getInstance();
-    final encoded = jsonEncode(_tasks.map((t) => t.toMap()).toList());
+
+    final encoded = jsonEncode(
+      _tasks.map((t) => t.toMap()).toList(),
+    );
+
     await prefs.setString(_storageKey, encoded);
   }
 
-  // toggle done/undone when checkbox changes
-  void _toggleTask(int index, bool? value) {
-    setState(() {
-      _tasks[index].isDone = value ?? false;
-    });
-    _saveTasks();
-  }
-
-  // remove a task (used by long press)
-  void _removeTask(int index) {
-    setState(() {
-      _tasks.removeAt(index);
-    });
-    _saveTasks();
-  }
-
-  // show dialog to add a task
+  // opens a dialog so the user can add a task
   Future<void> _showAddTaskDialog() async {
     final controller = TextEditingController();
 
-    final String? result = await showDialog<String>(
+    final result = await showDialog<String>(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -82,9 +74,8 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: const InputDecoration(
               hintText: 'e.g. buy milk',
             ),
-            onSubmitted: (_) {
-              Navigator.of(context).pop(controller.text);
-            },
+            // pressing enter submits
+            onSubmitted: (_) => Navigator.of(context).pop(controller.text),
           ),
           actions: [
             TextButton(
@@ -105,17 +96,100 @@ class _HomeScreenState extends State<HomeScreen> {
     final text = (result ?? '').trim();
     if (text.isEmpty) return;
 
+    // create a new task (default into today: dayIndex 0)
+    final newTask = Task(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      title: text,
+      isDone: false,
+      dayIndex: 0,
+    );
+
     setState(() {
-      _tasks.add(Task(title: text));
+      _tasks.add(newTask);
     });
 
-    _saveTasks();
+    await _saveTasks();
+  }
+
+  // toggles a task tick
+  Future<void> _toggleTask(String taskId) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+
+    setState(() {
+      final t = _tasks[index];
+      _tasks[index] = t.copyWith(isDone: !t.isDone);
+    });
+
+    await _saveTasks();
+  }
+
+  // deletes a task (long press)
+  Future<void> _deleteTask(String taskId) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+
+    setState(() {
+      _lastDeletedTask = _tasks.removeAt(index);
+    });
+
+    await _saveTasks();
+
+    // show undo snackbar
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('task deleted'),
+        action: SnackBarAction(
+          label: 'undo',
+          onPressed: () async {
+            final task = _lastDeletedTask;
+            if (task == null) return;
+
+            setState(() {
+              _tasks.add(task);
+              _lastDeletedTask = null;
+            });
+
+            await _saveTasks();
+          },
+        ),
+      ),
+    );
+  }
+
+  // moves a task to another day when dropped
+  Future<void> _moveTaskToDay(Task task, int newDayIndex) async {
+    final index = _tasks.indexWhere((t) => t.id == task.id);
+    if (index == -1) return;
+
+    setState(() {
+      _tasks[index] = _tasks[index].copyWith(dayIndex: newDayIndex);
+    });
+
+    await _saveTasks();
+  }
+
+  // helper: get tasks for a day bucket
+  List<Task> _tasksForDay(int dayIndex) {
+    final list = _tasks.where((t) => t.dayIndex == dayIndex).toList();
+
+    // simple sort: undone first, then done
+    list.sort((a, b) {
+      if (a.isDone == b.isDone) return 0;
+      return a.isDone ? 1 : -1;
+    });
+
+    return list;
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasTasks = _tasks.isNotEmpty;
-
+    // layout note:
+    // - wide screens show 3 columns side-by-side
+    // - narrow screens stack them vertically (still works)
     return Scaffold(
       appBar: AppBar(
         title: const Text('to do list'),
@@ -124,41 +198,67 @@ class _HomeScreenState extends State<HomeScreen> {
         onPressed: _showAddTaskDialog,
         child: const Icon(Icons.add),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'today',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 900;
+
+          final content = [
+            DayColumn(
+              title: 'today',
+              dayIndex: 0,
+              tasks: _tasksForDay(0),
+              onDropTask: (task) => _moveTaskToDay(task, 0),
+              onToggleTask: _toggleTask,
+              onDeleteTask: _deleteTask,
             ),
-            const SizedBox(height: 12),
+            DayColumn(
+              title: 'tomorrow',
+              dayIndex: 1,
+              tasks: _tasksForDay(1),
+              onDropTask: (task) => _moveTaskToDay(task, 1),
+              onToggleTask: _toggleTask,
+              onDeleteTask: _deleteTask,
+            ),
+            DayColumn(
+              title: 'day after',
+              dayIndex: 2,
+              tasks: _tasksForDay(2),
+              onDropTask: (task) => _moveTaskToDay(task, 2),
+              onToggleTask: _toggleTask,
+              onDeleteTask: _deleteTask,
+            ),
+          ];
 
-            // empty message vs list
-            if (!hasTasks)
-              const EmptyState()
-            else
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _tasks.length,
-                  itemBuilder: (context, index) {
-                    final task = _tasks[index];
-
-                    // long press needs a wrapper to work
-                    return InkWell(
-                      onLongPress: () => _removeTask(index),
-                      child: CheckboxListTile(
-                        value: task.isDone,
-                        title: Text(task.title),
-                        onChanged: (value) => _toggleTask(index, value),
-                      ),
-                    );
-                  },
-                ),
+          if (isWide) {
+            // side-by-side layout
+            return Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(child: content[0]),
+                  const SizedBox(width: 12),
+                  Expanded(child: content[1]),
+                  const SizedBox(width: 12),
+                  Expanded(child: content[2]),
+                ],
               ),
-          ],
-        ),
+            );
+          }
+
+          // stacked layout for smaller widths
+          return Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Expanded(child: content[0]),
+                const SizedBox(height: 12),
+                Expanded(child: content[1]),
+                const SizedBox(height: 12),
+                Expanded(child: content[2]),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
